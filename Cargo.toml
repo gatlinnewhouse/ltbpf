@@ -1,0 +1,27 @@
+[package]
+name = "ltbpf"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+authors = [
+    "Bart Massey <bart.massey@gmail.com>",
+    "Claude <noreply@anthropic.com>",
+]
+description = "Linear-time Bayesian Particle Filter built on ltsis"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/BartMassey/ltbpf"
+keywords = ["particle-filter", "bayesian", "monte-carlo", "tracking", "no-std"]
+categories = ["mathematics", "no-std", "algorithms"]
+
+[features]
+default = ["std"]
+std  = ["ltsis/std",  "rand/std",  "rand_distr/std"]
+libm = ["ltsis/libm"]
+
+[dependencies]
+ltsis = { git = "https://github.com/BartMassey/ltsis", default-features = false }
+rand = { version = "0.10", default-features = false }
+rand_distr = { version = "0.6", default-features = false }
+
+[dev-dependencies]
+rand = { version = "0.10", features = ["std"] }
