@@ -51,8 +51,12 @@ def main():
         sys.exit(1)
 
     d = load_csv(args.csv)
+    # Give the track panel twice the height of the other two — the
+    # equal-aspect constraint on it tends to squeeze it otherwise.
     fig, (ax_track, ax_err, ax_ess) = plt.subplots(
-        3, 1, figsize=(9, 10), constrained_layout=True
+        3, 1, figsize=(9, 12),
+        gridspec_kw={"height_ratios": [2, 1, 1]},
+        constrained_layout=True,
     )
 
     # Panel 1: tracks overlaid.
