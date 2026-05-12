@@ -1,6 +1,11 @@
 # ltbpf: linear-time Bayesian Particle Filtering
 Bart Massey and Claude Code 2026
 
+[![Crates.io](https://img.shields.io/crates/v/ltbpf.svg)](https://crates.io/crates/ltbpf)
+[![Documentation](https://docs.rs/ltbpf/badge.svg)](https://docs.rs/ltbpf)
+[![CI](https://github.com/BartMassey/ltbpf/actions/workflows/ci.yml/badge.svg)](https://github.com/BartMassey/ltbpf/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/crates/l/ltbpf.svg)](#license)
+
 A small Rust crate for **Bayesian particle filtering**. Given a hidden
 state that evolves over time and a stream of noisy observations of
 it, a particle filter gives you a running estimate of where the state
@@ -45,7 +50,7 @@ it'll give the same answer faster. If it isn't, read on.
 
 ```toml
 [dependencies]
-ltbpf = { git = "https://github.com/BartMassey/ltbpf" }
+ltbpf = "0.1"
 rand = "0.10"
 rand_distr = "0.6"
 ```
@@ -54,8 +59,10 @@ The library is `no_std`-compatible. For bare-metal targets, disable
 default features and enable `libm`:
 
 ```toml
-ltbpf = { git = "https://github.com/BartMassey/ltbpf",
-          default-features = false, features = ["libm"] }
+[dependencies.ltbpf]
+version = "0.1"
+default-features = false
+features = ["libm"]
 ```
 
 ## A complete example
@@ -339,3 +346,10 @@ Dual-licensed under either of:
 - [Apache License, Version 2.0](LICENSE-APACHE)
 
 at your option.
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution
+intentionally submitted for inclusion in the work by you, as
+defined in the Apache-2.0 license, shall be dual licensed as
+above, without any additional terms or conditions.

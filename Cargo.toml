@@ -2,6 +2,9 @@
 name = "ltbpf"
 version = "0.1.0"
 edition = "2021"
+# Tracks the highest MSRV among our direct dependencies. `rand` 0.10
+# and `rand_distr` 0.6 both declare `rust-version = "1.85"`; nothing
+# in our own code requires anything newer.
 rust-version = "1.85"
 authors = [
     "Bart Massey <bart.massey@gmail.com>",
@@ -10,8 +13,15 @@ authors = [
 description = "Linear-time Bayesian Particle Filter built on ltsis"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/BartMassey/ltbpf"
+documentation = "https://docs.rs/ltbpf"
+readme = "README.md"
 keywords = ["particle-filter", "bayesian", "monte-carlo", "tracking", "no-std"]
 categories = ["mathematics", "no-std", "algorithms"]
+
+# Project-meta files that don't belong in the published tarball.
+# (cargo's auto-generated `Cargo.toml.orig` and `.cargo_vcs_info.json`
+# can't be excluded; everything else here is opt-out.)
+exclude = [".github/**", "ltbpf-plan.md"]
 
 [features]
 default = ["std"]
@@ -19,7 +29,11 @@ std  = ["ltsis/std",  "rand/std",  "rand_distr/std"]
 libm = ["ltsis/libm"]
 
 [dependencies]
-ltsis = { git = "https://github.com/BartMassey/ltsis", default-features = false }
+# Both `git` and `version` are specified: cargo uses the git source
+# for local builds, while `cargo publish` strips the git/path bits
+# and uses the version requirement for the registry. Once `ltsis` is
+# on crates.io, the `git = ...` entry can be removed.
+ltsis = { version = "0.1", git = "https://github.com/BartMassey/ltsis", default-features = false }
 rand = { version = "0.10", default-features = false }
 rand_distr = { version = "0.6", default-features = false }
 
@@ -35,3 +49,9 @@ divan = "0.1"
 [[bench]]
 name = "bench"
 harness = false
+
+# docs.rs builds the published crate with default features only by
+# default. Build with all features so users browsing the rendered
+# docs see both `std` and `libm` configurations documented.
+[package.metadata.docs.rs]
+all-features = true
