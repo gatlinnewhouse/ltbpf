@@ -4,7 +4,7 @@
 //! of the filter — that's the Kalman convergence test's job; this
 //! file only checks the bookkeeping.
 
-use ltbpf::{Buffers, ParticleFilter, StepResult};
+use ltbpf::{Buffers, ParticleFilter, ResamplerKind, StepResult};
 use rand::rngs::SmallRng;
 use rand::{RngExt, SeedableRng};
 
@@ -285,4 +285,64 @@ fn nonfinite_weight_returns_error() {
         Err(ltbpf::StepError::NonFiniteWeight) => {}
         other => panic!("expected NonFiniteWeight, got {other:?}"),
     }
+}
+
+// -------------------------------------------------------------------
+// Streaming resampler: same invariants as buffered
+// -------------------------------------------------------------------
+
+#[test]
+fn streaming_resampler_resets_weights_to_one() {
+    let n = 16;
+    let (mut a, mut b, mut w, mut idx) = (vec![], vec![], vec![], vec![]);
+    let mut filter = make_filter(
+        n,
+        &mut a,
+        &mut b,
+        &mut w,
+        &mut idx,
+        |rng, s| *s + rng.random::<f32>(),
+        |s, _o| (*s).abs() + 1.0,
+    )
+    .with_resampler(ResamplerKind::Streaming)
+    .with_ess_threshold(1.0);
+    let mut rng = SmallRng::seed_from_u64(10);
+    let sr = filter.step(&mut rng, &()).expect("step ok");
+    assert!(sr.resampled);
+    for (i, &wi) in filter.weights().iter().enumerate() {
+        assert_eq!(wi, 1.0, "weight[{i}] = {wi}");
+    }
+}
+
+#[test]
+fn streaming_resampler_leaves_indices_untouched() {
+    // Streaming's contract is that it doesn't write the indices
+    // buffer. Pre-fill it with a sentinel and check the sentinel
+    // survives a resample step.
+    let n = 8;
+    let mut a: Vec<f32> = (0..n).map(|i| i as f32).collect();
+    let mut b = vec![0.0_f32; n];
+    let mut w = vec![1.0_f32; n];
+    let mut idx: Vec<u32> = (0..n as u32).map(|i| 0xDEAD_0000 | i).collect();
+    let sentinel = idx.clone();
+    {
+        let mut filter = ParticleFilter::new(
+            Buffers {
+                particles_curr: &mut a,
+                particles_next: &mut b,
+                weights: &mut w,
+                indices: &mut idx,
+            },
+            |rng: &mut SmallRng, s: &f32| *s + rng.random::<f32>(),
+            |s: &f32, _o: &()| (*s).abs() + 1.0,
+        )
+        .with_resampler(ResamplerKind::Streaming)
+        .with_ess_threshold(1.0);
+        let mut rng = SmallRng::seed_from_u64(11);
+        filter.step(&mut rng, &()).expect("step ok");
+    }
+    assert_eq!(
+        idx, sentinel,
+        "streaming resampler wrote to the indices buffer"
+    );
 }

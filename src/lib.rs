@@ -127,7 +127,28 @@ where
     propagate: Prop,
     weight_update: Weigh,
     ess_threshold: f32,
+    resampler: ResamplerKind,
     _phantom: PhantomData<fn(&mut R, &Obs)>,
+}
+
+/// Which `ltsis` entry point [`ParticleFilter`] uses for resampling.
+///
+/// Default is [`ResamplerKind::Buffered`], which is faster
+/// (~30% on x86, more on Cortex-M4F). [`ResamplerKind::Streaming`]
+/// uses the per-yield iterator and exists for memory-constrained
+/// targets and for benchmarking; it produces the same posterior
+/// approximation modulo RNG consumption.
+///
+/// Note: in either mode, `Buffers.indices` is required by the type
+/// signature. In `Streaming` mode the slice is read but not written,
+/// so its prior contents are preserved. Users who want to genuinely
+/// elide the indices allocation should call `ltsis::sample_indices`
+/// directly in a hand-rolled loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ResamplerKind {
+    #[default]
+    Buffered,
+    Streaming,
 }
 
 impl<'a, S, R, Obs, Prop, Weigh> ParticleFilter<'a, S, R, Obs, Prop, Weigh>
@@ -174,8 +195,15 @@ where
             propagate,
             weight_update,
             ess_threshold: 0.5,
+            resampler: ResamplerKind::Buffered,
             _phantom: PhantomData,
         }
+    }
+
+    /// Select the resampling backend. See [`ResamplerKind`].
+    pub fn with_resampler(mut self, kind: ResamplerKind) -> Self {
+        self.resampler = kind;
+        self
     }
 
     /// Set the effective-sample-size threshold for adaptive
@@ -275,13 +303,26 @@ where
         let resampled = ess < threshold;
 
         if resampled {
-            // ltsis fills `indices` with sampled indices into the
-            // weight distribution. `weights` is read-only to it.
-            ltsis::sample_indices_buffered(rng, self.weights, self.indices);
-            // Gather: particles_curr[i] = particles_next[indices[i]].
-            for i in 0..n {
-                let j = self.indices[i] as usize;
-                self.particles_curr[i] = self.particles_next[j].clone();
+            match self.resampler {
+                ResamplerKind::Buffered => {
+                    // ltsis fills `indices` with sampled indices into
+                    // the weight distribution; `weights` is read-only.
+                    ltsis::sample_indices_buffered(rng, self.weights, self.indices);
+                    for i in 0..n {
+                        let j = self.indices[i] as usize;
+                        self.particles_curr[i] = self.particles_next[j].clone();
+                    }
+                }
+                ResamplerKind::Streaming => {
+                    // Drive the gather directly from the iterator —
+                    // indices are yielded in ascending order, one per
+                    // gather slot. The `indices` buffer is left
+                    // untouched.
+                    let it = ltsis::sample_indices(rng, self.weights, n as u32);
+                    for (i, j) in it.enumerate() {
+                        self.particles_curr[i] = self.particles_next[j as usize].clone();
+                    }
+                }
             }
             for w in self.weights.iter_mut() {
                 *w = 1.0;
