@@ -120,7 +120,6 @@ fn main() -> Result<(), ltbpf::StepError> {
         },
         propagate,
         weight_update,
-        0.5,
     );
 
     let mut truth = sample_initial_truth();

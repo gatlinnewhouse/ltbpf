@@ -121,8 +121,8 @@ fn main() -> Result<(), ltbpf::StepError> {
         },
         propagate,
         weight_update,
-        0.0, // set the ess threshold to 0.0 to reflect a SIS strategy
-    );
+    )
+    .with_ess_threshold(0.0);
 
     let mut truth = sample_initial_truth();
     println!("step,truth_x,truth_y,est_x,est_y,ess,err");

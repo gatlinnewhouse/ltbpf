@@ -35,7 +35,6 @@ where
         },
         propagate,
         weigh,
-        0.5,
     )
 }
 
@@ -336,7 +335,6 @@ fn streaming_resampler_leaves_indices_untouched() {
             },
             |rng: &mut SmallRng, s: &f32| *s + rng.random::<f32>(),
             |s: &f32, _o: &()| (*s).abs() + 1.0,
-            0.5,
         )
         .with_resampler(ResamplerKind::Streaming)
         .with_ess_threshold(1.0);

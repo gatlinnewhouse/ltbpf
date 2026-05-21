@@ -328,12 +328,7 @@ where
     ///
     /// Panics if any buffer length differs from
     /// `particles_curr.len()`, or if `particles_curr` is empty.
-    pub fn new(
-        buffers: Buffers<'a, S>,
-        propagate: Prop,
-        weight_update: Weigh,
-        ess_threshold: f32,
-    ) -> Self {
+    pub fn new(buffers: Buffers<'a, S>, propagate: Prop, weight_update: Weigh) -> Self {
         let Buffers {
             particles_curr,
             particles_next,
@@ -356,7 +351,7 @@ where
             indices,
             propagate,
             weight_update,
-            ess_threshold,
+            ess_threshold: 0.5,
             resampler: ResamplerKind::Buffered,
             _phantom: PhantomData,
         }

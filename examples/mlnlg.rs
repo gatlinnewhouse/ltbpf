@@ -181,7 +181,6 @@ fn main() -> Result<(), ltbpf::StepError> {
         },
         make_propagate(az),
         weight_update,
-        0.5,
     );
 
     let mut truth = State {
