@@ -19,8 +19,8 @@ use rand_distr::{Distribution, Normal};
 
 // -- Model parameters ------------------------------------------------
 
-const Q: f32 = 10.0;      // process noise variance
-const R: f32 = 1.0;       // observation noise variance
+const Q: f32 = 10.0; // process noise variance
+const R: f32 = 1.0; // observation noise variance
 const X0_VAR: f32 = 10.0; // prior variance
 
 // -- State type ------------------------------------------------------
@@ -47,7 +47,10 @@ fn dynamics(x: f32, t: u32) -> f32 {
 
 fn propagate(rng: &mut SmallRng, s: &State) -> State {
     let noise = Normal::new(0.0_f32, Q.sqrt()).unwrap().sample(rng);
-    State { x: dynamics(s.x, s.t) + noise, t: s.t + 1 }
+    State {
+        x: dynamics(s.x, s.t) + noise,
+        t: s.t + 1,
+    }
 }
 
 fn weight_update(s: &State, &y: &f32) -> f32 {
@@ -57,11 +60,15 @@ fn weight_update(s: &State, &y: &f32) -> f32 {
 }
 
 fn simulate_step(rng: &mut SmallRng, truth: &State) -> (State, f32) {
-    let x_new = dynamics(truth.x, truth.t)
-        + Normal::new(0.0_f32, Q.sqrt()).unwrap().sample(rng);
-    let y = x_new * x_new / 20.0
-        + Normal::new(0.0_f32, R.sqrt()).unwrap().sample(rng);
-    (State { x: x_new, t: truth.t + 1 }, y)
+    let x_new = dynamics(truth.x, truth.t) + Normal::new(0.0_f32, Q.sqrt()).unwrap().sample(rng);
+    let y = x_new * x_new / 20.0 + Normal::new(0.0_f32, R.sqrt()).unwrap().sample(rng);
+    (
+        State {
+            x: x_new,
+            t: truth.t + 1,
+        },
+        y,
+    )
 }
 
 // -- Main ------------------------------------------------------------
@@ -75,7 +82,10 @@ fn main() -> Result<(), ltbpf::StepError> {
 
     let prior = Normal::new(0.0_f32, X0_VAR.sqrt()).unwrap();
     let mut p0: Vec<State> = (0..n)
-        .map(|_| State { x: prior.sample(&mut rng), t: 0 })
+        .map(|_| State {
+            x: prior.sample(&mut rng),
+            t: 0,
+        })
         .collect();
     let mut p1 = vec![State::default(); n];
     let mut w = vec![1.0_f32; n];
@@ -90,23 +100,32 @@ fn main() -> Result<(), ltbpf::StepError> {
         },
         propagate,
         weight_update,
+        0.5,
     );
 
-    let mut truth = State { x: prior.sample(&mut rng), t: 0 };
+    let mut truth = State {
+        x: prior.sample(&mut rng),
+        t: 0,
+    };
     println!("step,truth_x,est_x,ess,abs_err");
     for _ in 0..steps {
         let (truth_new, y) = simulate_step(&mut rng, &truth);
         truth = truth_new;
         let StepResult { ess, .. } = filter.step(&mut rng, &y)?;
-        let [Coord::Linear(est_x)] = weighted_mean(
-            filter.particles(),
-            filter.weights(),
-            |s| [Coord::Linear(s.x)],
-        ) else {
+        let [Coord::Linear(est_x)] = weighted_mean(filter.particles(), filter.weights(), |s| {
+            [Coord::Linear(s.x)]
+        }) else {
             unreachable!()
         };
         let err = (est_x - truth.x).abs();
-        println!("{},{:.4},{:.4},{:.1},{:.4}", truth.t - 1, truth.x, est_x, ess, err);
+        println!(
+            "{},{:.4},{:.4},{:.1},{:.4}",
+            truth.t - 1,
+            truth.x,
+            est_x,
+            ess,
+            err
+        );
     }
     Ok(())
 }

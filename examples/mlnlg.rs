@@ -29,11 +29,11 @@ use rand_distr::{Distribution, Normal};
 
 // -- Model parameters ------------------------------------------------
 
-const Q_XI: f32 = 10.0;   // nonlinear state process noise variance
-const QZ: f32 = 0.3;      // linear state process noise variance (diagonal)
-const R: f32 = 1.0;       // observation noise variance
+const Q_XI: f32 = 10.0; // nonlinear state process noise variance
+const QZ: f32 = 0.3; // linear state process noise variance (diagonal)
+const R: f32 = 1.0; // observation noise variance
 const XI0_VAR: f32 = 5.0; // prior variance for ξ
-const Z0_VAR: f32 = 0.5;  // prior variance per z component (Z0 = 0.5·I)
+const Z0_VAR: f32 = 0.5; // prior variance per z component (Z0 = 0.5·I)
 
 // -- A_z matrix helpers ----------------------------------------------
 
@@ -44,10 +44,10 @@ fn make_az() -> [[f32; 4]; 4] {
     let (c1, s1) = (omega1.cos(), omega1.sin());
     let (c2, s2) = (omega2.cos(), omega2.sin());
     [
-        [ rho1 * c1,  rho1 * s1, 0.0,        0.0       ],
-        [-rho1 * s1,  rho1 * c1, 0.0,        0.0       ],
-        [ 0.0,        0.0,       rho2 * c2,  rho2 * s2 ],
-        [ 0.0,        0.0,      -rho2 * s2,  rho2 * c2 ],
+        [rho1 * c1, rho1 * s1, 0.0, 0.0],
+        [-rho1 * s1, rho1 * c1, 0.0, 0.0],
+        [0.0, 0.0, rho2 * c2, rho2 * s2],
+        [0.0, 0.0, -rho2 * s2, rho2 * c2],
     ]
 }
 
@@ -74,7 +74,11 @@ struct State {
 
 impl Default for State {
     fn default() -> Self {
-        Self { xi: 0.0, z: [0.0; 4], t: 0 }
+        Self {
+            xi: 0.0,
+            z: [0.0; 4],
+            t: 0,
+        }
     }
 }
 
@@ -127,10 +131,15 @@ fn simulate_step(rng: &mut SmallRng, truth: &State, az: &[[f32; 4]; 4]) -> (Stat
         z_pred[3] + z_noise[3],
     ];
     let obs_noise = Normal::new(0.0_f32, R.sqrt()).unwrap().sample(rng);
-    let y = z_new[0] + z_new[1] + z_new[2] + z_new[3]
-        + xi_new * xi_new / 20.0
-        + obs_noise;
-    (State { xi: xi_new, z: z_new, t: truth.t + 1 }, y)
+    let y = z_new[0] + z_new[1] + z_new[2] + z_new[3] + xi_new * xi_new / 20.0 + obs_noise;
+    (
+        State {
+            xi: xi_new,
+            z: z_new,
+            t: truth.t + 1,
+        },
+        y,
+    )
 }
 
 // -- Main ------------------------------------------------------------
@@ -172,6 +181,7 @@ fn main() -> Result<(), ltbpf::StepError> {
         },
         make_propagate(az),
         weight_update,
+        0.5,
     );
 
     let mut truth = State {
@@ -212,11 +222,16 @@ fn main() -> Result<(), ltbpf::StepError> {
         println!(
             "{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.1}",
             truth.t - 1,
-            truth.xi, est_xi,
-            truth.z[0], est_z0,
-            truth.z[1], est_z1,
-            truth.z[2], est_z2,
-            truth.z[3], est_z3,
+            truth.xi,
+            est_xi,
+            truth.z[0],
+            est_z0,
+            truth.z[1],
+            est_z1,
+            truth.z[2],
+            est_z2,
+            truth.z[3],
+            est_z3,
             ess,
         );
     }

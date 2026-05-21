@@ -1,9 +1,10 @@
+//! Modified Vehicle demo to use SIS particle filter
 //! 2D vehicle tracking demo — reproduces Figure 4 of Massey (ICASSP
 //! 2008). Near-constant-velocity dynamics, noisy GPS (position) + IMU
 //! (velocity), Gaussian process noise. CSV to stdout.
 //!
 //! Usage:
-//!     cargo run --release --example vehicle [n] > out.csv
+//!     cargo run --release --example sis [n] > out.csv
 //! Defaults to n = 1000 particles, 1000 steps.
 
 use ltbpf::{weighted_mean, Buffers, Coord, ParticleFilter, StepResult};
@@ -120,7 +121,7 @@ fn main() -> Result<(), ltbpf::StepError> {
         },
         propagate,
         weight_update,
-        0.5,
+        0.0, // set the ess threshold to 0.0 to reflect a SIS strategy
     );
 
     let mut truth = sample_initial_truth();

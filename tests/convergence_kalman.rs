@@ -92,6 +92,7 @@ fn bpf_tracks_kalman_on_1d_linear_gaussian() {
                 let r = (y - s) / sigma_r;
                 (-0.5 * r * r).exp()
             },
+            0.5,
         );
 
         // Kalman state.
