@@ -493,9 +493,6 @@ where
             for w in self.weights.iter_mut() {
                 *w = 1.0;
             }
-
-            // 6. (optional) Regularized PF would jitter here after resampling
-            //TODO: write jitter fn and something to modify the control flow
         } else {
             // SIS step: the new "curr" is the just-propagated set;
             // weights carry over.
@@ -509,6 +506,28 @@ where
             ess,
             resampled,
         })
+    }
+
+    /// Advance the Regularized Particle Filter by one observation.
+    ///
+    /// Returns diagnostics for the step (see [`StepResult`]). On a
+    /// filter-killing pathology — every particle's weight zero, or
+    /// the user's `weight_update` producing NaN/inf/negative — returns
+    /// [`StepError`] instead and leaves the cloud in an unspecified
+    /// state.
+    pub fn rpf_step(
+        &mut self,
+        rng: &mut R,
+        obs: &Obs,
+        jitter: &mut impl FnMut(&mut R, &S) -> S,
+    ) -> Result<StepResult, StepError> {
+        let result = self.step(rng, obs)?;
+        if result.resampled {
+            for p in self.particles_curr.iter_mut() {
+                *p = jitter(rng, p);
+            }
+        }
+        Ok(result)
     }
 
     /// Advance the Auxiliary Particle Filter by one observation.
