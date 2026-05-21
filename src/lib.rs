@@ -493,6 +493,9 @@ where
             for w in self.weights.iter_mut() {
                 *w = 1.0;
             }
+
+            // 6. (optional) Regularized PF would jitter here after resampling
+            //TODO: write jitter fn and something to modify the control flow
         } else {
             // SIS step: the new "curr" is the just-propagated set;
             // weights carry over.
@@ -506,6 +509,24 @@ where
             ess,
             resampled,
         })
+    }
+
+    /// Advance the Auxiliary Particle Filter by one observation.
+    ///
+    /// Returns diagnostics for the step (see [`StepResult`]). On a
+    /// filter-killing pathology — every particle's weight zero, or
+    /// the user's `weight_update` producing NaN/inf/negative — returns
+    /// [`StepError`] instead and leaves the cloud in an unspecified
+    /// state.
+    fn apf_step(&mut self, rng: &mut R, obs: &Obs) -> Result<StepResult, StepError> {
+        // Standard APF step:
+        //   1. Auxiliary weighting, calculate weights based on a characterization
+        //      (look-ahead) of the next state.
+        //   2. Then normalize the auxiliary weights before resampling
+        //   3. Resample based on the look-ahead to focus on high-likelihoods
+        //   4. Propagate then weight correction
+        //   5. Normalize
+        todo!();
     }
 }
 
