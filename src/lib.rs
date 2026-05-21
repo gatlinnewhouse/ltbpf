@@ -537,7 +537,17 @@ where
     /// the user's `weight_update` producing NaN/inf/negative — returns
     /// [`StepError`] instead and leaves the cloud in an unspecified
     /// state.
-    fn apf_step(&mut self, rng: &mut R, obs: &Obs) -> Result<StepResult, StepError> {
+    ///
+    /// # Panics
+    /// Caller is responsible for ensuring `look_ahead_buf` is the
+    /// same length as the particles buffer.
+    pub fn apf_step(
+        &mut self,
+        rng: &mut R,
+        obs: &Obs,
+        look_ahead: &mut impl FnMut(&S) -> S,
+        look_ahead_buf: &mut [S],
+    ) -> Result<StepResult, StepError> {
         // Standard APF step:
         //   1. Auxiliary weighting, calculate weights based on a characterization
         //      (look-ahead) of the next state.
@@ -545,7 +555,8 @@ where
         //   3. Resample based on the look-ahead to focus on high-likelihoods
         //   4. Propagate then weight correction
         //   5. Normalize
-        todo!();
+        assert_eq!(look_ahead_buf.len(), self.particles_curr.len());
+        let n = self.particles_curr.len();
     }
 }
 
