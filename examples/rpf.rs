@@ -1,10 +1,23 @@
-//! Modified Vehicle demo to use SIS particle filter
-//! 2D vehicle tracking demo — reproduces Figure 4 of Massey (ICASSP
-//! 2008). Near-constant-velocity dynamics, noisy GPS (position) + IMU
-//! (velocity), Gaussian process noise. CSV to stdout.
+//! Regularized Particle Filter on the vehicle tracking benchmark.
+//!
+//! Identical dynamics to the SIS example, but uses `rpf_step` which
+//! jitters each particle after every resample. This prevents sample
+//! impoverishment — the collapse in diversity that repeated resampling
+//! causes in low-process-noise settings.
+//!
+//! Jitter follows Silverman's optimal bandwidth: each dimension perturbed
+//! by N(0, (h · σ̂_dim)²) where h = n^{-1/(d+4)}, d = 4, and σ̂_dim is
+//! the weighted empirical standard deviation of that dimension in the
+//! current particle cloud. This is recomputed each step so the kernel
+//! adapts as the cloud concentrates.
+//!
+//! Note: RPF benefit is most visible under low process noise (risk of
+//! diversity collapse after repeated resampling). With the moderate
+//! SIGMA_A used here the bootstrap PF is already diverse enough, so
+//! the improvement over SIR is marginal.
 //!
 //! Usage:
-//!     cargo run --release --example sis [n] > out.csv
+//!     cargo run --release --example rpf [n] > out.csv
 //! Defaults to n = 1000 particles, 1000 steps.
 
 use ltbpf::{weighted_mean, Buffers, Coord, ParticleFilter, StepResult};
@@ -15,9 +28,9 @@ use rand_distr::{Distribution, Normal};
 // -- Model parameters ------------------------------------------------
 
 const DT: f32 = 0.1;
-const SIGMA_A: f32 = 0.5; // process noise on acceleration
-const SIGMA_GPS: f32 = 5.0; // GPS position noise
-const SIGMA_IMU: f32 = 0.2; // IMU velocity noise
+const SIGMA_A: f32 = 0.5;
+const SIGMA_GPS: f32 = 5.0;
+const SIGMA_IMU: f32 = 0.2;
 
 // -- State and observation types ------------------------------------
 
@@ -61,10 +74,6 @@ fn propagate(rng: &mut SmallRng, s: &Vehicle) -> Vehicle {
     }
 }
 
-/// Product of four Gaussian likelihoods, evaluated in linear space.
-/// Exponent is clamped at -50 so a momentarily-bad particle doesn't
-/// underflow the entire cloud to zero — a demo-level mitigation, not
-/// a library feature (see `ltbpf-plan.md` discussion).
 fn weight_update(p: &Vehicle, obs: &Obs) -> f32 {
     let r1 = (obs.gps_x - p.x) / SIGMA_GPS;
     let r2 = (obs.gps_y - p.y) / SIGMA_GPS;
@@ -75,12 +84,7 @@ fn weight_update(p: &Vehicle, obs: &Obs) -> f32 {
 }
 
 fn sample_initial_truth() -> Vehicle {
-    Vehicle {
-        x: 0.0,
-        y: 0.0,
-        vx: 1.0,
-        vy: 0.5,
-    }
+    Vehicle { x: 0.0, y: 0.0, vx: 1.0, vy: 0.5 }
 }
 
 fn sense(rng: &mut SmallRng, truth: &Vehicle) -> Obs {
@@ -94,6 +98,26 @@ fn sense(rng: &mut SmallRng, truth: &Vehicle) -> Obs {
     }
 }
 
+/// Weighted empirical standard deviation for each state dimension.
+/// Returns (σ_x, σ_y, σ_vx, σ_vy).
+fn empirical_stds(particles: &[Vehicle], weights: &[f32]) -> (f32, f32, f32, f32) {
+    let sum_w: f32 = weights.iter().sum();
+    let inv = 1.0 / sum_w;
+    let mx: f32 = particles.iter().zip(weights).map(|(p, w)| p.x * w).sum::<f32>() * inv;
+    let my: f32 = particles.iter().zip(weights).map(|(p, w)| p.y * w).sum::<f32>() * inv;
+    let mvx: f32 = particles.iter().zip(weights).map(|(p, w)| p.vx * w).sum::<f32>() * inv;
+    let mvy: f32 = particles.iter().zip(weights).map(|(p, w)| p.vy * w).sum::<f32>() * inv;
+    let var_x: f32 =
+        particles.iter().zip(weights).map(|(p, w)| w * (p.x - mx).powi(2)).sum::<f32>() * inv;
+    let var_y: f32 =
+        particles.iter().zip(weights).map(|(p, w)| w * (p.y - my).powi(2)).sum::<f32>() * inv;
+    let var_vx: f32 =
+        particles.iter().zip(weights).map(|(p, w)| w * (p.vx - mvx).powi(2)).sum::<f32>() * inv;
+    let var_vy: f32 =
+        particles.iter().zip(weights).map(|(p, w)| w * (p.vy - mvy).powi(2)).sum::<f32>() * inv;
+    (var_x.sqrt(), var_y.sqrt(), var_vx.sqrt(), var_vy.sqrt())
+}
+
 // -- Main loop -------------------------------------------------------
 
 fn main() -> Result<(), ltbpf::StepError> {
@@ -104,6 +128,9 @@ fn main() -> Result<(), ltbpf::StepError> {
     let mut truth_rng = SmallRng::seed_from_u64(0xC0FFEE);
     let mut filter_rng = SmallRng::seed_from_u64(0xDEAD_BEEF);
 
+    // Silverman's optimal bandwidth: h = n^{-1/(d+4)}, d = 4.
+    let h: f32 = (n as f32).powf(-1.0 / 8.0);
+
     let mut p0 = vec![Vehicle::default(); n];
     let mut p1 = vec![Vehicle::default(); n];
     let mut w = vec![1.0_f32; n];
@@ -113,6 +140,9 @@ fn main() -> Result<(), ltbpf::StepError> {
         *p = sample_prior(&mut filter_rng);
     }
 
+    // Default threshold (0.5) — jitter fires only when the bootstrap PF
+    // would resample, i.e. when ESS < 0.5·n. This restores diversity on
+    // demand without adding cumulative noise on every step.
     let mut filter = ParticleFilter::new(
         Buffers {
             particles_curr: &mut p0,
@@ -122,15 +152,31 @@ fn main() -> Result<(), ltbpf::StepError> {
         },
         propagate,
         weight_update,
-    )
-    .with_ess_threshold(0.0);
+    );
 
     let mut truth = sample_initial_truth();
     println!("step,truth_x,truth_y,est_x,est_y,ess,err");
     for step in 0..steps {
         truth = propagate(&mut truth_rng, &truth);
         let obs = sense(&mut truth_rng, &truth);
-        let StepResult { ess, .. } = filter.step(&mut filter_rng, &obs)?;
+
+        // Compute per-dimension kernel bandwidth from the current cloud
+        // before stepping (Silverman: h · σ̂_dim per dimension).
+        let (sx, sy, svx, svy) =
+            empirical_stds(filter.particles(), filter.weights());
+        let bx = h * sx;
+        let by = h * sy;
+        let bvx = h * svx;
+        let bvy = h * svy;
+
+        let StepResult { ess, .. } = filter.rpf_step(&mut filter_rng, &obs, &mut |rng, s| {
+            Vehicle {
+                x: s.x + Normal::new(0.0_f32, bx.max(1e-6)).unwrap().sample(rng),
+                y: s.y + Normal::new(0.0_f32, by.max(1e-6)).unwrap().sample(rng),
+                vx: s.vx + Normal::new(0.0_f32, bvx.max(1e-6)).unwrap().sample(rng),
+                vy: s.vy + Normal::new(0.0_f32, bvy.max(1e-6)).unwrap().sample(rng),
+            }
+        })?;
 
         let centroid = weighted_mean(filter.particles(), filter.weights(), |v| {
             [Coord::Linear(v.x), Coord::Linear(v.y)]

@@ -1,10 +1,17 @@
-//! Modified Vehicle demo to use SIS particle filter
-//! 2D vehicle tracking demo — reproduces Figure 4 of Massey (ICASSP
-//! 2008). Near-constant-velocity dynamics, noisy GPS (position) + IMU
-//! (velocity), Gaussian process noise. CSV to stdout.
+//! Auxiliary Particle Filter on the vehicle tracking benchmark.
+//!
+//! Same dynamics as the SIS example. The APF improves on the bootstrap
+//! filter by computing auxiliary weights via a look-ahead step before
+//! resampling: particles likely to survive the next observation are
+//! selected first, then propagated, then corrected. This concentrates
+//! particles in high-likelihood regions and reduces weight variance.
+//!
+//! Look-ahead here is noiseless one-step propagation: x̂_i = f(x_{t-1}^i)
+//! without process noise. This is cheap (no RNG) and gives a useful
+//! signal whenever process noise is small relative to observation noise.
 //!
 //! Usage:
-//!     cargo run --release --example sis [n] > out.csv
+//!     cargo run --release --example apf [n] > out.csv
 //! Defaults to n = 1000 particles, 1000 steps.
 
 use ltbpf::{weighted_mean, Buffers, Coord, ParticleFilter, StepResult};
@@ -15,9 +22,9 @@ use rand_distr::{Distribution, Normal};
 // -- Model parameters ------------------------------------------------
 
 const DT: f32 = 0.1;
-const SIGMA_A: f32 = 0.5; // process noise on acceleration
-const SIGMA_GPS: f32 = 5.0; // GPS position noise
-const SIGMA_IMU: f32 = 0.2; // IMU velocity noise
+const SIGMA_A: f32 = 0.5;
+const SIGMA_GPS: f32 = 5.0;
+const SIGMA_IMU: f32 = 0.2;
 
 // -- State and observation types ------------------------------------
 
@@ -61,10 +68,17 @@ fn propagate(rng: &mut SmallRng, s: &Vehicle) -> Vehicle {
     }
 }
 
-/// Product of four Gaussian likelihoods, evaluated in linear space.
-/// Exponent is clamped at -50 so a momentarily-bad particle doesn't
-/// underflow the entire cloud to zero — a demo-level mitigation, not
-/// a library feature (see `ltbpf-plan.md` discussion).
+/// Noiseless one-step prediction: mean of p(x_t | x_{t-1}^i).
+/// Used as the look-ahead characterization for auxiliary weighting.
+fn look_ahead(s: &Vehicle) -> Vehicle {
+    Vehicle {
+        x: s.x + s.vx * DT,
+        y: s.y + s.vy * DT,
+        vx: s.vx,
+        vy: s.vy,
+    }
+}
+
 fn weight_update(p: &Vehicle, obs: &Obs) -> f32 {
     let r1 = (obs.gps_x - p.x) / SIGMA_GPS;
     let r2 = (obs.gps_y - p.y) / SIGMA_GPS;
@@ -75,12 +89,7 @@ fn weight_update(p: &Vehicle, obs: &Obs) -> f32 {
 }
 
 fn sample_initial_truth() -> Vehicle {
-    Vehicle {
-        x: 0.0,
-        y: 0.0,
-        vx: 1.0,
-        vy: 0.5,
-    }
+    Vehicle { x: 0.0, y: 0.0, vx: 1.0, vy: 0.5 }
 }
 
 fn sense(rng: &mut SmallRng, truth: &Vehicle) -> Obs {
@@ -108,6 +117,8 @@ fn main() -> Result<(), ltbpf::StepError> {
     let mut p1 = vec![Vehicle::default(); n];
     let mut w = vec![1.0_f32; n];
     let mut idx = vec![0_u32; n];
+    // Extra buffer for look-ahead states — caller-owned, length == n.
+    let mut la_buf = vec![Vehicle::default(); n];
 
     for p in &mut p0 {
         *p = sample_prior(&mut filter_rng);
@@ -122,15 +133,16 @@ fn main() -> Result<(), ltbpf::StepError> {
         },
         propagate,
         weight_update,
-    )
-    .with_ess_threshold(0.0);
+    );
 
     let mut truth = sample_initial_truth();
     println!("step,truth_x,truth_y,est_x,est_y,ess,err");
     for step in 0..steps {
         truth = propagate(&mut truth_rng, &truth);
         let obs = sense(&mut truth_rng, &truth);
-        let StepResult { ess, .. } = filter.step(&mut filter_rng, &obs)?;
+
+        let StepResult { ess, .. } =
+            filter.apf_step(&mut filter_rng, &obs, &mut look_ahead, &mut la_buf)?;
 
         let centroid = weighted_mean(filter.particles(), filter.weights(), |v| {
             [Coord::Linear(v.x), Coord::Linear(v.y)]

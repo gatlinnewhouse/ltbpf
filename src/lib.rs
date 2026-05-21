@@ -557,6 +557,87 @@ where
         //   5. Normalize
         assert_eq!(look_ahead_buf.len(), self.particles_curr.len());
         let n = self.particles_curr.len();
+
+        // 1. Compute look-ahead states and auxiliary weights.
+        //    weights[i] *= p(y | x̂_i) where x̂_i = look_ahead(curr[i]).
+        let mut max_mu = 0.0_f32;
+        for i in 0..n {
+            look_ahead_buf[i] = look_ahead(&self.particles_curr[i]);
+            let mu = (self.weight_update)(&look_ahead_buf[i], obs);
+            if !mu.is_finite() || mu < 0.0 {
+                return Err(StepError::NonFiniteWeight);
+            }
+            self.weights[i] *= mu;
+            if !self.weights[i].is_finite() {
+                return Err(StepError::NonFiniteWeight);
+            }
+            if self.weights[i] > max_mu {
+                max_mu = self.weights[i];
+            }
+        }
+        if max_mu == 0.0 {
+            return Err(StepError::AllWeightsZero);
+        }
+
+        // 2. Normalize auxiliary weights by max.
+        let inv = 1.0 / max_mu;
+        for w in self.weights.iter_mut() {
+            *w *= inv;
+        }
+
+        // 3. Resample based on auxiliary weights. APF always resamples.
+        ltsis::sample_indices_buffered(rng, self.weights, self.indices);
+
+        // 4. Propagate from selected ancestors into particles_next.
+        //    particles_curr is read-only here and stays valid through step 5.
+        for i in 0..n {
+            let j = self.indices[i] as usize;
+            self.particles_next[i] = (self.propagate)(rng, &self.particles_curr[j]);
+        }
+
+        // 5. Correction weights: w_i = p(y | x_t^i) / p(y | x̂_{a_i}).
+        //    look_ahead_buf[indices[i]] is the look-ahead of ancestor i —
+        //    valid because look_ahead_buf is untouched since step 1.
+        //    If denom == 0, the ancestor had zero auxiliary weight and should
+        //    not have been selected; treat the correction as 0.
+        let mut max_w = 0.0_f32;
+        for i in 0..n {
+            let j = self.indices[i] as usize;
+            let numer = (self.weight_update)(&self.particles_next[i], obs);
+            if !numer.is_finite() || numer < 0.0 {
+                return Err(StepError::NonFiniteWeight);
+            }
+            let denom = (self.weight_update)(&look_ahead_buf[j], obs);
+            self.weights[i] = if denom > 0.0 { numer / denom } else { 0.0 };
+            if self.weights[i] > max_w {
+                max_w = self.weights[i];
+            }
+        }
+        if max_w == 0.0 {
+            return Err(StepError::AllWeightsZero);
+        }
+
+        // 6. Normalize correction weights, accumulate ESS moments.
+        let inv = 1.0 / max_w;
+        let mut sum_w = 0.0_f32;
+        let mut sum_w2 = 0.0_f32;
+        for w in self.weights.iter_mut() {
+            *w *= inv;
+            sum_w += *w;
+            sum_w2 += *w * *w;
+        }
+        let ess = (sum_w * sum_w) / sum_w2;
+
+        // 7. Propagated particles become the new current cloud.
+        core::mem::swap(&mut self.particles_curr, &mut self.particles_next);
+
+        Ok(StepResult {
+            max_weight: max_w,
+            sum_w,
+            sum_w_squared: sum_w2,
+            ess,
+            resampled: true,
+        })
     }
 }
 
